@@ -19,6 +19,7 @@ struct ProjectSummary {
     prompt_count: i64,
     latest_activity: Option<String>,
     first_memory_at: Option<String>,
+    directory: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -227,6 +228,21 @@ fn list_projects() -> Result<Vec<ProjectSummary>, String> {
                 WHERE project IS NOT NULL AND project <> '' AND deleted_at IS NULL
                 GROUP BY project
             ),
+            project_directories AS (
+                SELECT project, directory
+                FROM (
+                    SELECT
+                        project,
+                        directory,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY project
+                            ORDER BY started_at DESC, id DESC
+                        ) AS row_number
+                    FROM sessions
+                    WHERE project IS NOT NULL AND project <> '' AND directory <> ''
+                )
+                WHERE row_number = 1
+            ),
             activity AS (
                 SELECT project, MAX(ts) AS latest_activity
                 FROM (
@@ -251,13 +267,15 @@ fn list_projects() -> Result<Vec<ProjectSummary>, String> {
                 COALESCE(sc.session_count, 0) AS session_count,
                 COALESCE(pc.prompt_count, 0) AS prompt_count,
                 activity.latest_activity,
-                first_memory.first_memory_at
+                first_memory.first_memory_at,
+                project_directories.directory
             FROM projects p
             LEFT JOIN observation_counts oc ON oc.project = p.project
             LEFT JOIN session_counts sc ON sc.project = p.project
             LEFT JOIN prompt_counts pc ON pc.project = p.project
             LEFT JOIN activity ON activity.project = p.project
             LEFT JOIN first_memory ON first_memory.project = p.project
+            LEFT JOIN project_directories ON project_directories.project = p.project
             ORDER BY observation_count DESC, session_count DESC, prompt_count DESC, p.project ASC
             "#,
         )
@@ -272,6 +290,7 @@ fn list_projects() -> Result<Vec<ProjectSummary>, String> {
                 prompt_count: row.get(3)?,
                 latest_activity: row.get(4)?,
                 first_memory_at: row.get(5)?,
+                directory: row.get(6)?,
             })
         })
         .map_err(|error| format!("Failed to list projects: {error}"))?;
@@ -283,6 +302,9 @@ fn list_projects() -> Result<Vec<ProjectSummary>, String> {
 #[tauri::command]
 fn list_memories(request: MemoryQuery) -> Result<PagedMemories, String> {
     let conn = open_engram_readonly()?;
+    let snapshot = conn
+        .unchecked_transaction()
+        .map_err(|error| format!("Failed to start read snapshot: {error}"))?;
     let project = normalize_optional_filter(request.project);
     let query = normalize_query(request.query);
     let page_size = request.page_size.unwrap_or(30).clamp(10, 100);
@@ -292,7 +314,7 @@ fn list_memories(request: MemoryQuery) -> Result<PagedMemories, String> {
 
     if query.is_empty() {
         return list_memories_without_search(
-            &conn,
+            &snapshot,
             project.as_deref(),
             page,
             page_size,
@@ -311,7 +333,7 @@ fn list_memories(request: MemoryQuery) -> Result<PagedMemories, String> {
     };
 
     list_memories_with_search(
-        &conn,
+        &snapshot,
         project.as_deref(),
         &fts_query,
         page,
@@ -319,6 +341,51 @@ fn list_memories(request: MemoryQuery) -> Result<PagedMemories, String> {
         offset,
         sort_order,
     )
+}
+
+fn memory_list_sql(project: Option<&str>, sort_order: SortOrder) -> &'static str {
+    match (project.is_some(), sort_order) {
+        (true, SortOrder::Latest) => {
+            r#"
+            SELECT id, sync_id, session_id, type, title,
+                   substr(content, 1, 520), project, scope, topic_key, created_at, updated_at
+            FROM observations
+            WHERE deleted_at IS NULL AND project = ?1
+            ORDER BY datetime(updated_at) DESC, id DESC
+            LIMIT ?2 OFFSET ?3
+        "#
+        }
+        (true, SortOrder::Oldest) => {
+            r#"
+            SELECT id, sync_id, session_id, type, title,
+                   substr(content, 1, 520), project, scope, topic_key, created_at, updated_at
+            FROM observations
+            WHERE deleted_at IS NULL AND project = ?1
+            ORDER BY datetime(created_at) ASC, id ASC
+            LIMIT ?2 OFFSET ?3
+        "#
+        }
+        (false, SortOrder::Latest) => {
+            r#"
+            SELECT id, sync_id, session_id, type, title,
+                   substr(content, 1, 520), project, scope, topic_key, created_at, updated_at
+            FROM observations
+            WHERE deleted_at IS NULL
+            ORDER BY datetime(updated_at) DESC, id DESC
+            LIMIT ?1 OFFSET ?2
+        "#
+        }
+        (false, SortOrder::Oldest) => {
+            r#"
+            SELECT id, sync_id, session_id, type, title,
+                   substr(content, 1, 520), project, scope, topic_key, created_at, updated_at
+            FROM observations
+            WHERE deleted_at IS NULL
+            ORDER BY datetime(created_at) ASC, id ASC
+            LIMIT ?1 OFFSET ?2
+        "#
+        }
+    }
 }
 
 fn list_memories_without_search(
@@ -329,76 +396,33 @@ fn list_memories_without_search(
     offset: i64,
     sort_order: SortOrder,
 ) -> Result<PagedMemories, String> {
-    let total = conn
-        .query_row(
-            r#"
-            SELECT COUNT(*)
-            FROM observations
-            WHERE deleted_at IS NULL
-              AND (?1 IS NULL OR project = ?1)
-            "#,
+    let total = match project {
+        Some(project) => conn.query_row(
+            "SELECT COUNT(*) FROM observations WHERE deleted_at IS NULL AND project = ?1",
             params![project],
             |row| row.get::<_, i64>(0),
-        )
-        .map_err(|error| format!("Failed to count memories: {error}"))?;
-
-    let memory_query = match sort_order {
-        SortOrder::Latest => {
-            r#"
-            SELECT
-                id,
-                sync_id,
-                session_id,
-                type,
-                title,
-                substr(content, 1, 520) AS preview,
-                project,
-                scope,
-                topic_key,
-                created_at,
-                updated_at
-            FROM observations
-            WHERE deleted_at IS NULL
-              AND (?1 IS NULL OR project = ?1)
-            ORDER BY datetime(updated_at) DESC, id DESC
-            LIMIT ?2 OFFSET ?3
-            "#
-        }
-        SortOrder::Oldest => {
-            r#"
-            SELECT
-                id,
-                sync_id,
-                session_id,
-                type,
-                title,
-                substr(content, 1, 520) AS preview,
-                project,
-                scope,
-                topic_key,
-                created_at,
-                updated_at
-            FROM observations
-            WHERE deleted_at IS NULL
-              AND (?1 IS NULL OR project = ?1)
-            ORDER BY datetime(created_at) ASC, id ASC
-            LIMIT ?2 OFFSET ?3
-            "#
-        }
-    };
+        ),
+        None => conn.query_row(
+            "SELECT COUNT(*) FROM observations WHERE deleted_at IS NULL",
+            [],
+            |row| row.get::<_, i64>(0),
+        ),
+    }
+    .map_err(|error| format!("Failed to count memories: {error}"))?;
 
     let mut statement = conn
-        .prepare(memory_query)
+        .prepare(memory_list_sql(project, sort_order))
         .map_err(|error| format!("Failed to prepare memory query: {error}"))?;
-
-    let items = statement
-        .query_map(
-            params![project, i64::from(page_size), offset],
-            memory_summary_from_row,
-        )
-        .map_err(|error| format!("Failed to list memories: {error}"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("Failed to read memory row: {error}"))?;
+    let limit = i64::from(page_size);
+    let items = match project {
+        Some(project) => {
+            statement.query_map(params![project, limit, offset], memory_summary_from_row)
+        }
+        None => statement.query_map(params![limit, offset], memory_summary_from_row),
+    }
+    .map_err(|error| format!("Failed to list memories: {error}"))?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|error| format!("Failed to read memory row: {error}"))?;
 
     Ok(PagedMemories {
         items,
@@ -586,6 +610,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn list_queries_keep_project_predicates_indexable() {
+        let project_sql = memory_list_sql(Some("demo"), SortOrder::Latest);
+        assert!(project_sql.contains("project = ?1"));
+        assert!(!project_sql.contains("?1 IS NULL"));
+        assert!(project_sql.contains("datetime("));
+
+        let all_sql = memory_list_sql(None, SortOrder::Latest);
+        assert!(!all_sql.contains("project = ?1"));
+        assert!(all_sql.contains("datetime("));
+    }
+
+    #[test]
     fn builds_safe_fts_query() {
         assert_eq!(
             build_fts_query(r#"auth bug "quote" %%%"#),
@@ -632,6 +668,15 @@ mod tests {
         assert_eq!(page.page_size, 10);
         assert!(page.total >= page.items.len() as i64);
         assert!(project.first_memory_at.is_some());
+        let serialized_project =
+            serde_json::to_value(project).expect("project summary should serialize");
+        assert!(
+            matches!(
+                serialized_project.get("directory"),
+                Some(serde_json::Value::Null | serde_json::Value::String(_))
+            ),
+            "project summary should expose directory as a nullable string"
+        );
         assert_sorted_by_updated_descending(&page.items);
 
         let oldest_page = list_memories(MemoryQuery {

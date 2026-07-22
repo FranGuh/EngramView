@@ -2,13 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/png" href="/icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React + Typescript</title>
+    <meta name="color-scheme" content="light dark" />
+    <title>EngramView</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; }
+      body { background: #f3eee6; color: #17202a; font-family: system-ui, sans-serif; }
+      @media (prefers-color-scheme: dark) { body { background: #0d141c; color: #f4f7fa; } }
+      .startup-shell { height: 100%; display: grid; place-items: center; }
+      .startup-card { display: flex; align-items: center; gap: 12px; opacity: .82; }
+      .startup-mark { width: 32px; height: 32px; border-radius: 10px; background: #e45a45; }
+    </style>
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="startup-shell" role="status" aria-label="Loading EngramView">
+        <div class="startup-card"><span class="startup-mark"></span><strong>EngramView</strong></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
