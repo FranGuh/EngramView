@@ -13,7 +13,7 @@ const INLINE_PATTERN = new RegExp(
     "(\\*[^*\n]+\\*)",
     "(\\b(?:Ctrl|Cmd|Alt|Shift|Option)\\s*\\+\\s*[A-Za-z0-9]+\\b)",
     "(<[a-zA-Z0-9_, -]+>)",
-    "((?:[a-zA-Z]:[\\\\/]|[.~]?[\\\\/])?[a-zA-Z0-9_.-–—\\\\/]+\\.(?:py|html|js|jsx|ts|tsx|json|rs|md|css|scss|cmd|exe|toml|yaml|yml|txt|sh|bat|cpp|c|h|hpp|go|java|kt|swift|rb|php|vue|svelte))",
+    "((?:[a-zA-Z]:[\\\\/]|[.~]?[\\\\/])?[-a-zA-Z0-9_.~–—/\\\\]+\\.(?:json|jsx|html|tsx|swift|toml|yaml|scss|cmd|exe|yml|txt|sh|bat|cpp|hpp|java|ruby|vue|svelte|py|js|ts|rs|md|css|c|h|go|rb|php)(?![a-zA-Z0-9_]))",
     "(\\b_[a-zA-Z0-9_]+\\b|\\b[a-zA-Z0-9_]+\\(\\))",
     "(\\b(?=[0-9a-f]{7,8}\\b)(?:[a-f]*[0-9][a-f0-9]*)\\b)",
     "(\\((?:[0-9]+|[a-zA-Z])\\)(?=\\s|$))",
@@ -70,7 +70,7 @@ function renderInline(value: string, keyPrefix: string): ReactNode[] {
           {token}
         </span>,
       );
-    } else if (/\.(?:py|html|js|jsx|ts|tsx|json|rs|md|css|scss|cmd|exe|toml|yaml|yml|txt|sh|bat|cpp|c|h|hpp|go|java|kt|swift|rb|php|vue|svelte)$/i.test(token)) {
+    } else if (/\.(?:json|jsx|html|tsx|swift|toml|yaml|scss|cmd|exe|yml|txt|sh|bat|cpp|hpp|java|ruby|vue|svelte|py|js|ts|rs|md|css|c|h|go|rb|php)$/i.test(token)) {
       nodes.push(
         <code key={key} className="inline-filepath" title={token}>
           <FileCode className="inline-token-icon" />
