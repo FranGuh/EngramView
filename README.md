@@ -1,117 +1,134 @@
-# EngramView
+<p align="center">
+  <img src="./icon.png" width="128" height="128" alt="EngramView Logo" />
+</p>
 
-EngramView is a small desktop app for reading your local Engram memory database by project. It is built for one job: make long-running AI coding history easier to inspect without exposing mutation commands.
+<h1 align="center">EngramView</h1>
 
-The app is intentionally read-only. It can list projects, search memories, inspect metadata, and open full memory content, but it cannot edit, delete, import, export, or migrate Engram data.
+<p align="center">
+  <strong>Read-only desktop browser for local Engram memory databases.</strong>
+</p>
 
-## Quick start
+<p align="center">
+  <a href="README.md">English</a> • <a href="README.es.md">Español</a>
+</p>
+
+---
+
+EngramView is a desktop app for reading your local [Engram](https://github.com/Gentleman-Programming) memory database by project. It is built for one job: make long-running AI coding history easy to inspect without exposing mutation commands.
+
+The app is intentionally **read-only**. It can list projects, search memories, inspect metadata, and open full memory content, but it **cannot edit, delete, import, export, or migrate** Engram data.
+
+---
+
+## 🚀 Quick Start
 
 ```bash
+# Install dependencies
 pnpm install
+
+# Run in development mode
 pnpm tauri dev
 ```
 
-By default, EngramView reads the local database from:
+---
 
-```text
-~/.engram/engram.db
+## 📁 Custom Engram Memory Location (`ENGRAM_DATA_DIR`)
+
+By default, EngramView looks for the database at:
+- **Windows:** `%USERPROFILE%\.engram\engram.db` *(e.g. `C:\Users\your_user\.engram\engram.db`)*
+- **macOS / Linux:** `~/.engram/engram.db`
+
+### What if your Engram memories are in a custom path?
+If your `.engram` data directory is stored on another drive, a custom folder, or a sync directory, set the `ENGRAM_DATA_DIR` environment variable to point to the **directory** containing `engram.db`.
+
+#### 1. Windows PowerShell (Development)
+```powershell
+$env:ENGRAM_DATA_DIR="D:\CustomPath\.engram"
+pnpm tauri dev
 ```
 
-To point it at another Engram data directory:
+#### 2. Windows CMD (Development)
+```cmd
+set ENGRAM_DATA_DIR=D:\CustomPath\.engram
+pnpm tauri dev
+```
 
+#### 3. macOS / Linux (Bash or Zsh)
 ```bash
-ENGRAM_DATA_DIR=/path/to/.engram pnpm tauri dev
+export ENGRAM_DATA_DIR="/custom/path/to/.engram"
+pnpm tauri dev
 ```
 
-## What it does
+#### 4. Setting it Permanently in Windows System Environment Variables
+If you run the standalone `engramview.exe` executable:
+1. Press `Win + R`, type `sysdm.cpl` and press **Enter**.
+2. Go to the **Advanced** tab and click **Environment Variables**.
+3. Under **User variables**, click **New...**.
+4. Variable name: `ENGRAM_DATA_DIR`
+5. Variable value: `D:\CustomPath\.engram` *(path to directory containing `engram.db`)*
+6. Click **OK** and launch `engramview.exe`.
+
+Or via PowerShell (User Scope):
+```powershell
+[System.Environment]::SetEnvironmentVariable("ENGRAM_DATA_DIR", "D:\CustomPath\.engram", "User")
+```
+
+---
+
+## ✨ Features & Capabilities
 
 | Area | Behavior |
 | --- | --- |
-| Projects | Lists Engram projects with observation, session, prompt, latest-memory, and first-memory metadata. |
-| Memories | Shows paginated memory cards with ID, title, type, scope, preview, timestamps, and topic key. |
-| Search | Searches the selected project using Engram's FTS index when available. |
-| Sorting | Switches the memory list between latest-first and oldest-first. |
-| Detail | Opens the full memory content with sync ID, topic key, project, and timestamps. |
-| Safety status | Shows whether the app is connected to the expected local Engram database. |
+| **Projects** | Lists Engram projects with observation, session, prompt, latest-memory, and first-memory metadata. |
+| **Memories** | Shows paginated memory cards with ID, title, type, scope, preview, timestamps, and topic key. |
+| **Search** | Searches the selected project using Engram's FTS index when available. |
+| **Sorting** | Switches the memory list between latest-first and oldest-first. |
+| **Detail** | Opens the full memory content with sync ID, topic key, project, and timestamps. |
+| **Safety status** | Displays whether the app is connected to the expected local Engram database. |
 
-## Why this exists
+---
 
-Engram is excellent at preserving coding-session context, but once a project has hundreds or thousands of observations, terminal search is not always the best reading experience. EngramView gives that local memory a focused visual browser while keeping the database protected from accidental writes.
+## 🔒 Safety Model
 
-## Safety model
+EngramView is designed strictly as a viewer, not an admin console:
 
-EngramView is designed as a viewer, not an admin console.
-
-- Opens SQLite with read-only flags.
+- Opens SQLite with `SQLITE_OPEN_READ_ONLY` flags.
 - Enables `PRAGMA query_only` for an extra SQLite-level write guard.
-- Exposes only read-oriented Tauri commands:
-  - project list
-  - memory list
-  - memory detail
-  - database info
-- Does not expose update, delete, sync, import, export, migration, or shell commands.
-- Does not run a local web server for the memory database.
+- Exposes only read-oriented Rust/Tauri commands (`project list`, `memory list`, `memory detail`, `database info`).
+- Does **not** expose update, delete, sync, import, export, migration, or shell execution commands.
+- Does **not** run an external web server.
 
-This matters because Engram data is personal development history. The safest default is inspection without mutation.
+---
 
-## Tech stack
+## 🛠️ Tech Stack
 
-| Layer | Choice |
+| Layer | Technology |
 | --- | --- |
-| Desktop shell | Tauri 2 |
-| Frontend | React 19 + TypeScript + Vite |
-| Styling | Tailwind CSS 4 + shadcn/Radix primitives |
-| Backend | Rust Tauri commands |
-| Database access | `rusqlite` with bundled SQLite |
+| **Desktop Shell** | Tauri 2 |
+| **Frontend** | React 19 + TypeScript + Vite |
+| **Styling** | Tailwind CSS 4 + Radix Primitives |
+| **Backend** | Rust |
+| **Database Access** | `rusqlite` with bundled SQLite (Read-Only) |
 
-## Development
+---
+
+## 💻 Development & Building
 
 ```bash
-pnpm install
+# Build frontend
 pnpm build
-pnpm tauri dev
-```
 
-Run Rust checks from the Tauri package:
-
-```bash
+# Run Rust checks
 cd src-tauri
-cargo test
 cargo check
-```
-
-Create a debug desktop build without bundling an installer:
-
-```bash
-pnpm tauri build --debug --no-bundle --ci
-```
-
-## Verification checklist
-
-Before publishing a build, run:
-
-```bash
-pnpm build
-cd src-tauri
 cargo test
-cargo check
+
+# Build executable package
+pnpm tauri build
 ```
 
-Manual smoke test:
+---
 
-- [ ] App opens without requesting write access.
-- [ ] Projects load from the expected Engram database.
-- [ ] Selecting a project loads paginated memories.
-- [ ] Search returns matching memories and can be cleared.
-- [ ] Detail view opens the full memory content.
-- [ ] Sorting latest-first/oldest-first changes memory order.
+## 📜 License
 
-## Privacy notes
-
-Do not commit local Engram databases, generated installers, or personal exports. This repository contains the viewer source code only.
-
-The app may display sensitive project memory if your local Engram database contains it. Treat screenshots and recordings as potentially private.
-
-## Project status
-
-EngramView is an MVP for personal local use. The core read-only viewer flow is implemented and tested; future work should stay conservative and preserve the safety boundary.
+This project is licensed under the [MIT License](LICENSE).
