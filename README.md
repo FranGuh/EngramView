@@ -5,7 +5,7 @@
 <h1 align="center">EngramView</h1>
 
 <p align="center">
-  <strong>Read-only desktop browser for local Engram memory databases.</strong>
+  <strong>Unofficial read-only desktop browser for local Engram memory databases.</strong>
 </p>
 
 <p align="center">
@@ -14,9 +14,23 @@
 
 ---
 
-EngramView is a desktop app for reading your local [Engram](https://github.com/Gentleman-Programming) memory database by project. It is built for one job: make long-running AI coding history easy to inspect without exposing mutation commands.
+> [!NOTE]
+> **Unofficial App:** EngramView is an independent, unofficial viewer created for [Engram](https://github.com/Gentleman-Programming/engram).
+> It was built out of the need to **avoid cluttering Obsidian vaults or markdown readers** with automated AI memory logs, providing a dedicated, clean UI focused entirely on project memory inspection and AI agent traceability.
 
-The app is intentionally **read-only**. It can list projects, search memories, inspect metadata, and open full memory content, but it **cannot edit, delete, import, export, or migrate** Engram data.
+EngramView is a desktop app for reading your local Engram memory database by project. It is intentionally **read-only**. It can list projects, search memories, inspect metadata, and open full memory content, but it **cannot edit, delete, import, export, or migrate** Engram data.
+
+---
+
+## 📸 Screenshots
+
+<p align="center">
+  <img src="./screenshots/screenshot1.png" alt="EngramView Interface - Project Overview" width="800" />
+</p>
+
+<p align="center">
+  <img src="./screenshots/screenshot2.png" alt="EngramView Interface - Memory Detail View" width="800" />
+</p>
 
 ---
 
@@ -112,20 +126,9 @@ EngramView is designed strictly as a viewer, not an admin console:
 
 ---
 
-## 💻 Development & Building
+## 🐛 Feedback & Suggestions
 
-```bash
-# Build frontend
-pnpm build
-
-# Run Rust checks
-cd src-tauri
-cargo check
-cargo test
-
-# Build executable package
-pnpm tauri build
-```
+If you have a suggestion, feature request, or found a bug, please open an issue on **[GitHub Issues](https://github.com/FranGuh/EngramView/issues)**.
 
 ---
 

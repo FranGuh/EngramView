@@ -5,7 +5,7 @@
 <h1 align="center">EngramView</h1>
 
 <p align="center">
-  <strong>Navegador de escritorio de solo lectura para la base de datos de memorias locales de Engram.</strong>
+  <strong>Navegador de escritorio no oficial de solo lectura para la base de datos de memorias locales de Engram.</strong>
 </p>
 
 <p align="center">
@@ -14,9 +14,23 @@
 
 ---
 
-EngramView es una aplicación de escritorio diseñada para inspeccionar la base de datos de memorias locales de [Engram](https://github.com/Gentleman-Programming) por proyecto. Fue construida con un solo propósito: facilitar la consulta visual del historial de codificación con IA sin exponer comandos de modificación o escritura.
+> [!NOTE]
+> **Aplicación No Oficial:** EngramView es un visor independiente no oficial creado para [Engram](https://github.com/Gentleman-Programming/engram).
+> Nació de la necesidad de **no generar ruido en vaults de Obsidian ni en otras apps de lectura de Markdown** con registros automatizados de memoria de IA, ofreciendo una interfaz gráfica limpia enfocada exclusivamente en la lectura de proyectos y la trazabilidad de agentes que utilizan Engram.
 
-La aplicación es intencionadamente de **solo lectura**. Permite listar proyectos, buscar memorias, revisar metadatos y abrir el contenido completo de cada observación, pero **no permite editar, borrar, importar, exportar ni migrar** datos de Engram.
+EngramView es una aplicación de escritorio diseñada para inspeccionar la base de datos de memorias locales de Engram por proyecto. Es intencionadamente de **solo lectura**. Permite listar proyectos, buscar memorias, revisar metadatos y abrir el contenido completo de cada observación, pero **no permite editar, borrar, importar, exportar ni migrar** datos.
+
+---
+
+## 📸 Capturas de Pantalla
+
+<p align="center">
+  <img src="./screenshots/screenshot1.png" alt="Interfaz EngramView - Vista General del Proyecto" width="800" />
+</p>
+
+<p align="center">
+  <img src="./screenshots/screenshot2.png" alt="Interfaz EngramView - Vista de Detalle de Memoria" width="800" />
+</p>
 
 ---
 
@@ -112,20 +126,9 @@ EngramView está diseñado estrictamente como un visualizador:
 
 ---
 
-## 💻 Desarrollo y Compilación
+## 🐛 Sugerencias y Reporte de Bugs
 
-```bash
-# Compilar frontend
-pnpm build
-
-# Ejecutar chequeos de Rust
-cd src-tauri
-cargo check
-cargo test
-
-# Generar ejecutable de producción
-pnpm tauri build
-```
+Si tienes alguna sugerencia, idea para una nueva funcionalidad o encuentras un error, por favor abre un ticket en **[GitHub Issues](https://github.com/FranGuh/EngramView/issues)**.
 
 ---
 
