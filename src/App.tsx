@@ -53,9 +53,15 @@ const SORT_ORDER_STORAGE_KEY = "engramview:sort-order";
 const QUERY_STORAGE_KEY = "engramview:query";
 const PROJECT_FILTER_STORAGE_KEY = "engramview:project-filter";
 const PAGE_STORAGE_KEY = "engramview:page";
+const READER_MODE_STORAGE_KEY = "engramview:reader-mode";
+const SELECTED_ADR_PATH_STORAGE_KEY = "engramview:selected-adr-path";
+const SELECTED_PROMPT_ID_STORAGE_KEY = "engramview:selected-prompt-id";
+const PROMPT_PAGE_STORAGE_KEY = "engramview:prompt-page";
+const PROMPT_PAGE_SIZE = 24;
 
 let initialDataPromise: Promise<[DatabaseInfo, ProjectSummary[]]> | null = null;
 const listRequestPromises = new Map<string, Promise<PagedMemories>>();
+const listPromptRequestPromises = new Map<string, Promise<PagedPrompts>>();
 
 function loadInitialDataOnce() {
   if (initialDataPromise) return initialDataPromise;
@@ -84,8 +90,22 @@ function listMemoriesOnce(request: object) {
   return pending;
 }
 
+function listProjectPromptsOnce(request: object) {
+  const key = JSON.stringify(request);
+  const existing = listPromptRequestPromises.get(key);
+  if (existing) return existing;
+  const pending = invoke<PagedPrompts>("list_project_prompts", { request });
+  listPromptRequestPromises.set(key, pending);
+  void pending.then(
+    () => listPromptRequestPromises.delete(key),
+    () => listPromptRequestPromises.delete(key),
+  );
+  return pending;
+}
+
 type SortOrder = "latest" | "oldest";
 type ReaderTheme = "warm" | "dark";
+type ReaderMode = "memories" | "docs" | "prompts";
 
 interface DatabaseInfo {
   path: string;
@@ -142,6 +162,44 @@ interface PagedMemories {
   total: number;
   page: number;
   pageSize: number;
+}
+
+type AdrDocumentsStatus = "available" | "missingRoot";
+
+interface AdrDocumentSummary {
+  path: string;
+  name: string;
+  title: string;
+  sizeBytes: number;
+}
+
+interface AdrDocumentsIndex {
+  status: AdrDocumentsStatus;
+  items: AdrDocumentSummary[];
+}
+
+interface AdrDocumentDetail extends AdrDocumentSummary {
+  content: string;
+}
+
+interface PromptSummary {
+  id: number;
+  syncId?: string;
+  sessionId: string;
+  preview: string;
+  project?: string;
+  createdAt: string;
+}
+
+interface PagedPrompts {
+  items: PromptSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+interface PromptDetail extends Omit<PromptSummary, "preview"> {
+  content: string;
 }
 
 function useDebouncedValue(value: string, delayMs: number) {
@@ -278,6 +336,40 @@ function App() {
       return null;
     }
   });
+  const [readerMode, setReaderMode] = useState<ReaderMode>(() => {
+    try {
+      const stored = window.localStorage.getItem(READER_MODE_STORAGE_KEY);
+      return stored === "docs" || stored === "prompts" ? stored : "memories";
+    } catch {
+      return "memories";
+    }
+  });
+  const [selectedAdrPath, setSelectedAdrPath] = useState<string | null>(() => {
+    try {
+      const stored = window.localStorage.getItem(SELECTED_ADR_PATH_STORAGE_KEY);
+      return stored && stored.trim() !== "" ? stored : null;
+    } catch {
+      return null;
+    }
+  });
+  const [selectedPromptId, setSelectedPromptId] = useState<number | null>(() => {
+    try {
+      const stored = window.localStorage.getItem(SELECTED_PROMPT_ID_STORAGE_KEY);
+      const parsed = stored ? Number(stored) : NaN;
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  });
+  const [promptPage, setPromptPage] = useState<number>(() => {
+    try {
+      const stored = window.localStorage.getItem(PROMPT_PAGE_STORAGE_KEY);
+      const parsed = stored ? Number(stored) : 1;
+      return Number.isFinite(parsed) ? Math.max(1, parsed) : 1;
+    } catch {
+      return 1;
+    }
+  });
   const [isSafeModeExpanded, setIsSafeModeExpanded] = useState(false);
   const [isProjectsCollapsed, setIsProjectsCollapsed] = useState<boolean>(() => {
     try {
@@ -359,12 +451,31 @@ function App() {
     }
   });
   const [selectedMemory, setSelectedMemory] = useState<MemoryDetail | null>(null);
+  const [adrDocuments, setAdrDocuments] = useState<AdrDocumentsIndex>({
+    status: "missingRoot",
+    items: [],
+  });
+  const [selectedAdrDocument, setSelectedAdrDocument] = useState<AdrDocumentDetail | null>(null);
+  const [isLoadingAdrDocuments, setIsLoadingAdrDocuments] = useState(false);
+  const [isLoadingAdrDetail, setIsLoadingAdrDetail] = useState(false);
+  const [adrError, setAdrError] = useState<string | null>(null);
+  const [prompts, setPrompts] = useState<PagedPrompts>({
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: PROMPT_PAGE_SIZE,
+  });
+  const [selectedPrompt, setSelectedPrompt] = useState<PromptDetail | null>(null);
+  const [isLoadingPrompts, setIsLoadingPrompts] = useState(false);
+  const [isLoadingPromptDetail, setIsLoadingPromptDetail] = useState(false);
+  const [promptError, setPromptError] = useState<string | null>(null);
   const [isInitialDataReady, setIsInitialDataReady] = useState(false);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isLoadingMemories, setIsLoadingMemories] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const memoryFilterKeyRef = useRef<string | null>(null);
+  const promptProjectRef = useRef<string | null>(selectedProject);
   const lastProjectRefreshRef = useRef(0);
   const [projectRefreshGeneration, setProjectRefreshGeneration] = useState(0);
 
@@ -385,6 +496,10 @@ function App() {
   const appStateRef = useRef({
     pinnedProjects,
     selectedProject,
+    readerMode,
+    selectedAdrPath,
+    selectedPromptId,
+    promptPage,
     selectedMemoryId,
     isReadingFocus,
     readerTheme,
@@ -400,6 +515,10 @@ function App() {
     appStateRef.current = {
       pinnedProjects,
       selectedProject,
+      readerMode,
+      selectedAdrPath,
+      selectedPromptId,
+      promptPage,
       selectedMemoryId,
       isReadingFocus,
       readerTheme,
@@ -413,6 +532,10 @@ function App() {
   }, [
     pinnedProjects,
     selectedProject,
+    readerMode,
+    selectedAdrPath,
+    selectedPromptId,
+    promptPage,
     selectedMemoryId,
     isReadingFocus,
     readerTheme,
@@ -441,6 +564,18 @@ function App() {
       } else {
         window.localStorage.setItem(SELECTED_PROJECT_STORAGE_KEY, "__ALL_PROJECTS__");
       }
+      window.localStorage.setItem(READER_MODE_STORAGE_KEY, s.readerMode);
+      if (s.selectedAdrPath !== null) {
+        window.localStorage.setItem(SELECTED_ADR_PATH_STORAGE_KEY, s.selectedAdrPath);
+      } else {
+        window.localStorage.removeItem(SELECTED_ADR_PATH_STORAGE_KEY);
+      }
+      if (s.selectedPromptId !== null) {
+        window.localStorage.setItem(SELECTED_PROMPT_ID_STORAGE_KEY, String(s.selectedPromptId));
+      } else {
+        window.localStorage.removeItem(SELECTED_PROMPT_ID_STORAGE_KEY);
+      }
+      window.localStorage.setItem(PROMPT_PAGE_STORAGE_KEY, String(s.promptPage));
       if (s.selectedMemoryId !== null) {
         window.localStorage.setItem(SELECTED_MEMORY_ID_STORAGE_KEY, String(s.selectedMemoryId));
       } else {
@@ -467,6 +602,10 @@ function App() {
   }, [
     pinnedProjects,
     selectedProject,
+    readerMode,
+    selectedAdrPath,
+    selectedPromptId,
+    promptPage,
     selectedMemoryId,
     isReadingFocus,
     readerTheme,
@@ -525,6 +664,7 @@ function App() {
   }, [projects]);
 
   const totalPages = Math.max(1, Math.ceil(memories.total / memories.pageSize));
+  const promptTotalPages = Math.max(1, Math.ceil(prompts.total / prompts.pageSize));
   const allProjectsMemoryCount = projects.reduce(
     (total, project) => total + project.observationCount,
     0,
@@ -540,6 +680,41 @@ function App() {
     selectedProject === null
       ? allProjectsFirstMemoryAt
       : selectedProjectSummary?.firstMemoryAt;
+
+  const selectorIsChecking = !isInitialDataReady || isLoadingProjects;
+  const selectedMemoryCount = selectedProject === null
+    ? allProjectsMemoryCount
+    : selectedProjectSummary?.observationCount ?? 0;
+  const memoryModeAvailability = {
+    available: !selectorIsChecking && selectedMemoryCount > 0,
+    reason: selectorIsChecking
+      ? "Checking memory availability..."
+      : selectedProject === null
+        ? "No memories found across projects."
+        : "No memories for this project.",
+  };
+  const promptModeAvailability = {
+    available: !selectorIsChecking && selectedProject !== null && (selectedProjectSummary?.promptCount ?? 0) > 0,
+    reason: selectorIsChecking
+      ? "Checking prompt availability..."
+      : selectedProject === null
+        ? "Select a project to browse prompts."
+        : "No prompts for this project.",
+  };
+  const docsModeAvailability = {
+    available: selectedProject !== null && !selectorIsChecking && !isLoadingAdrDocuments && adrDocuments.status === "available" && adrDocuments.items.length > 0,
+    reason: selectorIsChecking || isLoadingAdrDocuments
+      ? "Checking docs/adr availability..."
+      : selectedProject === null
+        ? "Select a project to browse Project docs / ADRs."
+        : adrDocuments.items.length > 0
+          ? ""
+          : adrError
+            ? `Unable to check docs/adr: ${adrError}`
+            : adrDocuments.status === "missingRoot"
+              ? "No docs/adr directory found for this project."
+              : "No Markdown ADR documents for this project.",
+  };
 
   useEffect(() => {
     let isCurrent = true;
@@ -683,6 +858,186 @@ function App() {
     };
   }, [selectedMemoryId]);
 
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadAdrDocuments(project: string) {
+      setIsLoadingAdrDocuments(true);
+      setAdrError(null);
+
+      try {
+        const response = await invoke<AdrDocumentsIndex>("list_project_adr_documents", {
+          project,
+        });
+        if (!isCurrent) return;
+
+        setAdrDocuments(response);
+        setSelectedAdrPath((currentPath) => {
+          if (response.items.some((item) => item.path === currentPath)) return currentPath;
+          return response.items[0]?.path ?? null;
+        });
+      } catch (caughtError) {
+        if (!isCurrent) return;
+        setAdrDocuments({ status: "available", items: [] });
+        setSelectedAdrPath(null);
+        setAdrError(String(caughtError));
+      } finally {
+        if (isCurrent) setIsLoadingAdrDocuments(false);
+      }
+    }
+
+    if (!isInitialDataReady || selectedProject === null) {
+      setAdrDocuments({ status: "missingRoot", items: [] });
+      setSelectedAdrPath(null);
+      setAdrError(null);
+      setIsLoadingAdrDocuments(false);
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    void loadAdrDocuments(selectedProject);
+    return () => {
+      isCurrent = false;
+    };
+  }, [isInitialDataReady, projectRefreshGeneration, selectedProject]);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadAdrDetail(project: string, path: string) {
+      setIsLoadingAdrDetail(true);
+      setAdrError(null);
+
+      try {
+        const response = await invoke<AdrDocumentDetail>("read_project_adr_document", {
+          request: { project, path },
+        });
+        if (isCurrent) setSelectedAdrDocument(response);
+      } catch (caughtError) {
+        if (isCurrent) {
+          setSelectedAdrDocument(null);
+          setAdrError(String(caughtError));
+        }
+      } finally {
+        if (isCurrent) setIsLoadingAdrDetail(false);
+      }
+    }
+
+    if (readerMode !== "docs" || selectedProject === null || selectedAdrPath === null) {
+      setSelectedAdrDocument(null);
+      setIsLoadingAdrDetail(false);
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    void loadAdrDetail(selectedProject, selectedAdrPath);
+    return () => {
+      isCurrent = false;
+    };
+  }, [readerMode, selectedAdrPath, selectedProject]);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadPrompts(project: string) {
+      setIsLoadingPrompts(true);
+      setPromptError(null);
+
+      try {
+        const response = await listProjectPromptsOnce({
+          project,
+          page: promptPage,
+          pageSize: PROMPT_PAGE_SIZE,
+        });
+        if (!isCurrent) return;
+
+        setPrompts(response);
+        setSelectedPromptId((currentId) => {
+          if (response.items.some((prompt) => prompt.id === currentId)) return currentId;
+          return response.items[0]?.id ?? null;
+        });
+      } catch (caughtError) {
+        if (!isCurrent) return;
+        setPrompts({ items: [], total: 0, page: promptPage, pageSize: PROMPT_PAGE_SIZE });
+        setSelectedPromptId(null);
+        setPromptError(String(caughtError));
+      } finally {
+        if (isCurrent) setIsLoadingPrompts(false);
+      }
+    }
+
+    if (readerMode !== "prompts") {
+      setIsLoadingPrompts(false);
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    if (promptProjectRef.current !== selectedProject) {
+      promptProjectRef.current = selectedProject;
+      if (promptPage !== 1) {
+        setPromptPage(1);
+        setIsLoadingPrompts(false);
+        return () => {
+          isCurrent = false;
+        };
+      }
+    }
+
+    if (!isInitialDataReady || selectedProject === null) {
+      setPrompts({ items: [], total: 0, page: 1, pageSize: PROMPT_PAGE_SIZE });
+      setSelectedPromptId(null);
+      setPromptError(null);
+      setIsLoadingPrompts(false);
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    void loadPrompts(selectedProject);
+    return () => {
+      isCurrent = false;
+    };
+  }, [isInitialDataReady, projectRefreshGeneration, promptPage, readerMode, selectedProject]);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadPromptDetail(project: string, id: number) {
+      setIsLoadingPromptDetail(true);
+      setPromptError(null);
+
+      try {
+        const response = await invoke<PromptDetail>("read_project_prompt", {
+          request: { project, id },
+        });
+        if (isCurrent) setSelectedPrompt(response);
+      } catch (caughtError) {
+        if (isCurrent) {
+          setSelectedPrompt(null);
+          setPromptError(String(caughtError));
+        }
+      } finally {
+        if (isCurrent) setIsLoadingPromptDetail(false);
+      }
+    }
+
+    if (readerMode !== "prompts" || selectedProject === null || selectedPromptId === null) {
+      setSelectedPrompt(null);
+      setIsLoadingPromptDetail(false);
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    void loadPromptDetail(selectedProject, selectedPromptId);
+    return () => {
+      isCurrent = false;
+    };
+  }, [readerMode, selectedPromptId, selectedProject]);
+
   useLayoutEffect(() => {
     if (!hoveredProject) {
       setHoverCardPosition(null);
@@ -776,8 +1131,12 @@ function App() {
   if (isReadingFocus) {
     return (
       <ReaderCanvas
-        isLoading={isLoadingDetail}
-        memory={selectedMemory}
+        isLoading={readerMode === "docs" ? isLoadingAdrDetail : isLoadingDetail}
+        memory={readerMode === "memories" ? selectedMemory : null}
+        document={readerMode === "docs" ? selectedAdrDocument : null}
+        prompt={readerMode === "prompts" ? selectedPrompt : null}
+        mode={readerMode}
+        project={selectedProject}
         onRestore={toggleReadingFocus}
         theme={readerTheme}
         titleBar={titleBar}
@@ -989,14 +1348,43 @@ function App() {
                 <span className="truncate">{selectedProject}</span>
               </span>
               <strong className="font-semibold">
-                {selectedProjectSummary?.observationCount ?? memories.total} memories
+                {readerMode === "prompts"
+                  ? selectedProjectSummary?.promptCount ?? prompts.total
+                  : selectedProjectSummary?.observationCount ?? memories.total} {readerMode === "prompts" ? "prompts" : "memories"}
               </strong>
               <span className="text-muted-foreground">Latest: {formatDate(latestActivity)}</span>
               <span className="text-muted-foreground">Age: {formatAgeSince(firstMemoryAt)}</span>
             </header>
           ) : null}
 
-          {error ? (
+          <div className="mb-4 flex shrink-0 items-center justify-between gap-3 rounded-xl border border-black/10 bg-white/65 px-3 py-2 shadow-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <BookOpen className="size-4 text-[#e45a45]" />
+              <span>{readerMode === "docs" ? "Project docs" : readerMode === "prompts" ? "Prompts" : "Memories"}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ReaderModeButton
+                active={readerMode === "memories"}
+                availability={memoryModeAvailability}
+                label="Memories"
+                onClick={() => setReaderMode("memories")}
+              />
+              <ReaderModeButton
+                active={readerMode === "docs"}
+                availability={docsModeAvailability}
+                label="Project docs / ADRs"
+                onClick={() => setReaderMode("docs")}
+              />
+              <ReaderModeButton
+                active={readerMode === "prompts"}
+                availability={promptModeAvailability}
+                label="Prompts"
+                onClick={() => setReaderMode("prompts")}
+              />
+            </div>
+          </div>
+
+          {readerMode === "memories" && error ? (
             <Card className="error-card mb-5 border-red-200 bg-red-50 text-red-950">
               <CardContent className="flex items-center justify-between gap-3 p-4 text-sm">
                 <span>{error}</span>
@@ -1005,6 +1393,41 @@ function App() {
             </Card>
           ) : null}
 
+          {readerMode === "docs" ? (
+            <ProjectDocsWorkspace
+              documents={adrDocuments}
+              error={adrError}
+              isListCollapsed={isMemoryListCollapsed}
+              isLoadingDetail={isLoadingAdrDetail}
+              isLoadingDocuments={isLoadingAdrDocuments}
+              selectedDocument={selectedAdrDocument}
+              selectedPath={selectedAdrPath}
+              isReadingFocus={isReadingFocus}
+              onFocusReading={toggleReadingFocus}
+              onSelectPath={setSelectedAdrPath}
+              onToggleList={() => setIsMemoryListCollapsed((isCollapsed) => !isCollapsed)}
+              project={selectedProject}
+            />
+          ) : readerMode === "prompts" ? (
+            <ProjectPromptsWorkspace
+              error={promptError}
+              isListCollapsed={isMemoryListCollapsed}
+              isLoadingDetail={isLoadingPromptDetail}
+              isLoadingPrompts={isLoadingPrompts}
+              isReadingFocus={isReadingFocus}
+              onFocusReading={toggleReadingFocus}
+              onNextPage={() => setPromptPage((currentPage) => Math.min(promptTotalPages, currentPage + 1))}
+              onPreviousPage={() => setPromptPage((currentPage) => Math.max(1, currentPage - 1))}
+              onSelectPrompt={setSelectedPromptId}
+              onToggleList={() => setIsMemoryListCollapsed((isCollapsed) => !isCollapsed)}
+              page={prompts.page}
+              prompts={prompts}
+              selectedPrompt={selectedPrompt}
+              selectedPromptId={selectedPromptId}
+              totalPages={promptTotalPages}
+              project={selectedProject}
+            />
+          ) : (
           <div
             className={`grid min-h-0 flex-1 gap-5 ${
               isMemoryListCollapsed
@@ -1223,6 +1646,7 @@ function App() {
               </CardContent>
             </Card>
           </div>
+          )}
         </section>
       </div>
 
@@ -1259,6 +1683,405 @@ function App() {
         </div>
       ) : null}
     </main>
+  );
+}
+
+interface ReaderModeButtonProps {
+  active: boolean;
+  availability: { available: boolean; reason: string };
+  label: string;
+  onClick: () => void;
+}
+
+function ReaderModeButton({ active, availability, label, onClick }: ReaderModeButtonProps) {
+  const title = availability.available ? `Open ${label}` : `${label}: ${availability.reason}`;
+  return (
+    <Button
+      className={availability.available ? undefined : "border-dashed opacity-70"}
+      size="sm"
+      variant={active ? "default" : "outline"}
+      aria-disabled={availability.available ? undefined : "true"}
+      aria-label={availability.available ? label : `${label} unavailable: ${availability.reason}`}
+      title={title}
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  );
+}
+
+interface ProjectPromptsWorkspaceProps {
+  error: string | null;
+  isListCollapsed: boolean;
+  isLoadingDetail: boolean;
+  isLoadingPrompts: boolean;
+  isReadingFocus: boolean;
+  onFocusReading: () => void;
+  onNextPage: () => void;
+  onPreviousPage: () => void;
+  onSelectPrompt: (id: number) => void;
+  onToggleList: () => void;
+  page: number;
+  prompts: PagedPrompts;
+  selectedPrompt: PromptDetail | null;
+  selectedPromptId: number | null;
+  totalPages: number;
+  project: string | null;
+}
+
+function ProjectPromptsWorkspace({
+  error,
+  isListCollapsed,
+  isLoadingDetail,
+  isLoadingPrompts,
+  isReadingFocus,
+  onFocusReading,
+  onNextPage,
+  onPreviousPage,
+  onSelectPrompt,
+  onToggleList,
+  page,
+  prompts,
+  selectedPrompt,
+  selectedPromptId,
+  totalPages,
+  project,
+}: ProjectPromptsWorkspaceProps) {
+  const noProject = project === null;
+
+  return (
+    <div
+      className={`grid min-h-0 flex-1 gap-5 ${
+        isListCollapsed
+          ? "grid-cols-[72px_minmax(0,1fr)]"
+          : "grid-cols-[minmax(300px,420px)_minmax(0,1fr)]"
+      }`}
+    >
+      <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden border-black/10 bg-white/70 shadow-sm">
+        <CardHeader className={isListCollapsed ? "hidden" : "shrink-0 pb-3"}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Project prompts</CardTitle>
+              <CardDescription>
+                {noProject ? "Select a project to browse its prompts." : `${prompts.total} prompts`}
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              {isLoadingPrompts ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
+              <Button size="icon" variant="ghost" aria-label="Collapse prompt list" onClick={onToggleList}>
+                <ChevronLeft className="size-4" />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        {isListCollapsed ? (
+          <CardContent className="flex min-h-0 flex-1 p-2">
+            <button
+              className="flex min-h-0 w-full flex-1 flex-col items-center justify-between gap-3 overflow-hidden rounded-xl border border-black/10 bg-white/65 px-1 py-3 text-xs font-medium text-muted-foreground transition hover:border-black/20 hover:bg-white focus-visible:ring-2 focus-visible:ring-ring"
+              type="button"
+              aria-label="Expand prompt list"
+              title="Expand prompt list"
+              onClick={onToggleList}
+            >
+              <ChevronRight className="size-4 shrink-0" />
+              <span className="rotate-180 whitespace-nowrap [writing-mode:vertical-rl]">Show prompts</span>
+              <span className="shrink-0 tabular-nums">{prompts.items.length}</span>
+            </button>
+          </CardContent>
+        ) : (
+          <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-0 pb-4">
+            <ScrollArea className="min-h-0 min-w-0 flex-1 px-4 pb-4 pr-3">
+              <div className="w-full min-w-0 space-y-3">
+                {noProject ? (
+                  <div className="empty-state rounded-xl border border-dashed bg-white/55 p-8 text-center text-sm text-muted-foreground">
+                    Select a project to browse its prompts.
+                  </div>
+                ) : isLoadingPrompts ? (
+                  <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" /> Loading prompts...
+                  </div>
+                ) : error ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-950">
+                    Project prompts could not be loaded: {error}
+                  </div>
+                ) : prompts.items.length === 0 ? (
+                  <div className="empty-state rounded-xl border border-dashed bg-white/55 p-8 text-center text-sm text-muted-foreground">
+                    No prompts found for this project.
+                  </div>
+                ) : (
+                  prompts.items.map((prompt) => (
+                    <button
+                      className={`box-border w-full min-w-0 max-w-full overflow-hidden rounded-xl border p-4 text-left transition ${
+                        selectedPromptId === prompt.id
+                          ? "border-black/25 bg-black text-white shadow-sm"
+                          : "border-black/10 bg-white/70 hover:bg-white"
+                      }`}
+                      key={prompt.id}
+                      type="button"
+                      onClick={() => onSelectPrompt(prompt.id)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="line-clamp-2 break-all font-medium leading-snug" title={`Prompt #${prompt.id}`}>
+                            Prompt #{prompt.id}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                            <span>{formatDate(prompt.createdAt)}</span>
+                            <span className="truncate">{prompt.sessionId}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="mt-2.5 line-clamp-3 break-all text-xs leading-5 opacity-75">
+                        {formatCardPreview(prompt.preview, 190)}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+            <div className="mt-4 flex shrink-0 items-center justify-between gap-3 px-4">
+              <Button disabled={page <= 1 || isLoadingPrompts || noProject} size="sm" variant="outline" onClick={onPreviousPage}>
+                <ChevronLeft className="size-4" /> Previous
+              </Button>
+              <span className="text-xs text-muted-foreground">Page {page} of {totalPages}</span>
+              <Button disabled={page >= totalPages || isLoadingPrompts || noProject} size="sm" variant="outline" onClick={onNextPage}>
+                Next <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      <Card className="memory-detail-card flex min-h-0 flex-col border-black/10 bg-white/75 shadow-sm">
+        <CardHeader className="shrink-0 pb-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <FileText className="size-5" />
+                {selectedPrompt ? `Prompt #${selectedPrompt.id}` : "Select a prompt"}
+              </CardTitle>
+              <CardDescription className="mt-2">
+                {selectedPrompt
+                  ? `Created ${formatDate(selectedPrompt.createdAt)}`
+                  : noProject ? "Select a project to read its prompts." : "Pick a prompt from the list to read its full content."}
+              </CardDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {isLoadingDetail ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!selectedPrompt}
+                aria-label={isReadingFocus ? "Restore browser layout" : "Focus reading view"}
+                title={isReadingFocus ? "Restore browser layout" : "Focus reading view"}
+                onClick={onFocusReading}
+              >
+                {isReadingFocus ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+                <span className="hidden sm:inline">{isReadingFocus ? "Restore layout" : "Focus reading"}</span>
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="flex min-h-0 flex-1 flex-col space-y-4 px-5 pb-5">
+          {selectedPrompt ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 text-sm xl:grid-cols-3">
+                <MetaItem label="Project" value={project ?? "-"} />
+                <MetaItem label="Session" value={selectedPrompt.sessionId} />
+                <MetaItem label="Created" value={formatDate(selectedPrompt.createdAt)} />
+              </div>
+              <ScrollArea className="memory-content-panel min-h-0 flex-1 rounded-2xl border border-black/10 bg-[#fbfaf7]">
+                <div className={isReadingFocus ? "px-8 py-7 lg:px-12" : "p-5"}>
+                  <MarkdownContent content={selectedPrompt.content} />
+                </div>
+              </ScrollArea>
+            </>
+          ) : (
+            <div className="empty-state flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-dashed bg-white/55 text-sm text-muted-foreground">
+              {error ? `Project prompts could not be loaded: ${error}` : noProject ? "Select a project to read its prompts." : "Nothing selected yet."}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+interface ProjectDocsWorkspaceProps {
+  documents: AdrDocumentsIndex;
+  error: string | null;
+  isListCollapsed: boolean;
+  isLoadingDetail: boolean;
+  isLoadingDocuments: boolean;
+  selectedDocument: AdrDocumentDetail | null;
+  selectedPath: string | null;
+  isReadingFocus: boolean;
+  onFocusReading: () => void;
+  onSelectPath: (path: string) => void;
+  onToggleList: () => void;
+  project: string | null;
+}
+
+function ProjectDocsWorkspace({
+  documents,
+  error,
+  isListCollapsed,
+  isLoadingDetail,
+  isLoadingDocuments,
+  selectedDocument,
+  selectedPath,
+  isReadingFocus,
+  onFocusReading,
+  onSelectPath,
+  onToggleList,
+  project,
+}: ProjectDocsWorkspaceProps) {
+  const noProject = project === null;
+  const missingRoot = documents.status === "missingRoot";
+
+  return (
+    <div
+      className={`grid min-h-0 flex-1 gap-5 ${
+        isListCollapsed
+          ? "grid-cols-[72px_minmax(0,1fr)]"
+          : "grid-cols-[minmax(300px,420px)_minmax(0,1fr)]"
+      }`}
+    >
+      <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden border-black/10 bg-white/70 shadow-sm">
+        <CardHeader className={isListCollapsed ? "hidden" : "shrink-0 pb-3"}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Project docs / ADRs</CardTitle>
+              <CardDescription>
+                {noProject ? "Select a project to browse its Markdown docs." : `${documents.items.length} documents`}
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              {isLoadingDocuments ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
+              <Button size="icon" variant="ghost" aria-label="Collapse document list" onClick={onToggleList}>
+                <ChevronLeft className="size-4" />
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        {isListCollapsed ? (
+          <CardContent className="flex min-h-0 flex-1 p-2">
+            <button
+              className="flex min-h-0 w-full flex-1 flex-col items-center justify-between gap-3 overflow-hidden rounded-xl border border-black/10 bg-white/65 px-1 py-3 text-xs font-medium text-muted-foreground transition hover:border-black/20 hover:bg-white focus-visible:ring-2 focus-visible:ring-ring"
+              type="button"
+              aria-label="Expand document list"
+              title="Expand document list"
+              onClick={onToggleList}
+            >
+              <ChevronRight className="size-4 shrink-0" />
+              <span className="rotate-180 whitespace-nowrap [writing-mode:vertical-rl]">Show docs</span>
+              <span className="shrink-0 tabular-nums">{documents.items.length}</span>
+            </button>
+          </CardContent>
+        ) : (
+          <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-0 pb-4">
+            <ScrollArea className="min-h-0 min-w-0 flex-1 px-4 pb-4 pr-3">
+              <div className="w-full min-w-0 space-y-3">
+                {noProject ? (
+                  <div className="empty-state rounded-xl border border-dashed bg-white/55 p-8 text-center text-sm text-muted-foreground">
+                    Select a project to browse Project docs / ADRs.
+                  </div>
+                ) : isLoadingDocuments ? (
+                  <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" /> Loading project docs...
+                  </div>
+                ) : error ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-950">
+                    Project docs could not be loaded: {error}
+                  </div>
+                ) : missingRoot ? (
+                  <div className="empty-state rounded-xl border border-dashed bg-white/55 p-8 text-center text-sm text-muted-foreground">
+                    No docs/adr directory found for this project.
+                  </div>
+                ) : documents.items.length === 0 ? (
+                  <div className="empty-state rounded-xl border border-dashed bg-white/55 p-8 text-center text-sm text-muted-foreground">
+                    No Markdown ADR documents found.
+                  </div>
+                ) : (
+                  documents.items.map((document) => (
+                    <button
+                      className={`box-border w-full min-w-0 max-w-full overflow-hidden rounded-xl border p-4 text-left transition ${
+                        selectedPath === document.path
+                          ? "border-black/25 bg-black text-white shadow-sm"
+                          : "border-black/10 bg-white/70 hover:bg-white"
+                      }`}
+                      key={document.path}
+                      type="button"
+                      onClick={() => onSelectPath(document.path)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="line-clamp-2 break-all font-medium leading-snug" title={document.title}>
+                            {document.title}
+                          </div>
+                          <div className="mt-1 break-all text-xs opacity-70">{document.path}</div>
+                        </div>
+                        <Badge variant="secondary" className="shrink-0">{formatBytes(document.sizeBytes)}</Badge>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        )}
+      </Card>
+
+      <Card className="memory-detail-card flex min-h-0 flex-col border-black/10 bg-white/75 shadow-sm">
+        <CardHeader className="shrink-0 pb-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <FileText className="size-5" />
+                {selectedDocument?.title ?? "Select an ADR"}
+              </CardTitle>
+              <CardDescription className="mt-2">
+                {selectedDocument?.path ?? (noProject ? "Select a project to read its ADRs." : "Pick an ADR from the list to read its full content.")}
+              </CardDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {isLoadingDetail ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!selectedDocument}
+                aria-label={isReadingFocus ? "Restore browser layout" : "Focus reading view"}
+                title={isReadingFocus ? "Restore browser layout" : "Focus reading view"}
+                onClick={onFocusReading}
+              >
+                {isReadingFocus ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+                <span className="hidden sm:inline">{isReadingFocus ? "Restore layout" : "Focus reading"}</span>
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="flex min-h-0 flex-1 flex-col space-y-4 px-5 pb-5">
+          {selectedDocument ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 text-sm xl:grid-cols-3">
+                <MetaItem label="Project" value={project ?? "-"} />
+                <MetaItem label="Path" value={selectedDocument.path} />
+                <MetaItem label="Size" value={formatBytes(selectedDocument.sizeBytes)} />
+              </div>
+              <ScrollArea className="memory-content-panel min-h-0 flex-1 rounded-2xl border border-black/10 bg-[#fbfaf7]">
+                <div className={isReadingFocus ? "px-8 py-7 lg:px-12" : "p-5"}>
+                  <MarkdownContent content={selectedDocument.content} />
+                </div>
+              </ScrollArea>
+            </>
+          ) : (
+            <div className="empty-state flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-dashed bg-white/55 text-sm text-muted-foreground">
+              {error ? `Project docs could not be loaded: ${error}` : noProject ? "Select a project to read its ADRs." : missingRoot ? "No docs/adr directory found for this project." : "Nothing selected yet."}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -1416,6 +2239,10 @@ function AppTitleBar({
 interface ReaderCanvasProps {
   isLoading: boolean;
   memory: MemoryDetail | null;
+  document: AdrDocumentDetail | null;
+  prompt: PromptDetail | null;
+  mode: ReaderMode;
+  project: string | null;
   onRestore: () => void;
   theme: ReaderTheme;
   titleBar: ReactNode;
@@ -1424,10 +2251,16 @@ interface ReaderCanvasProps {
 function ReaderCanvas({
   isLoading,
   memory,
+  document,
+  prompt,
+  mode,
+  project,
   onRestore,
   theme,
   titleBar,
 }: ReaderCanvasProps) {
+  const readingDocument = mode === "docs" ? document : null;
+  const readingPrompt = mode === "prompts" ? prompt : null;
   const isDark = theme === "dark";
 
   return (
@@ -1441,13 +2274,29 @@ function ReaderCanvas({
         <div className="flex min-w-0 items-center gap-x-4 overflow-hidden text-sm">
           <div className="min-w-0">
             <p className="reader-toolbar-label text-[0.68rem] font-semibold uppercase tracking-wider">
-              Memory
+              {mode === "docs" ? "Project doc" : mode === "prompts" ? "Project prompt" : "Memory"}
             </p>
             <p className="truncate font-medium">
-              {memory ? `#${memory.id} / ${memory.memoryType}` : "Nothing selected"}
+              {mode === "docs"
+                ? readingDocument?.path ?? "Nothing selected"
+                : mode === "prompts"
+                  ? readingPrompt ? `Prompt #${readingPrompt.id}` : "Nothing selected"
+                  : memory ? `#${memory.id} / ${memory.memoryType}` : "Nothing selected"}
             </p>
           </div>
-          {memory ? (
+          {mode === "docs" && readingDocument ? (
+            <>
+              <ToolbarMeta label="Project" value={project ?? "-"} />
+              <ToolbarMeta className="hidden md:block" label="Path" value={readingDocument.path} />
+              <ToolbarMeta className="hidden xl:block" label="Size" value={formatBytes(readingDocument.sizeBytes)} />
+            </>
+          ) : mode === "prompts" && readingPrompt ? (
+            <>
+              <ToolbarMeta label="Project" value={project ?? "-"} />
+              <ToolbarMeta className="hidden md:block" label="Session" value={readingPrompt.sessionId} />
+              <ToolbarMeta className="hidden xl:block" label="Created" value={formatDate(readingPrompt.createdAt)} />
+            </>
+          ) : memory ? (
             <>
               <ToolbarMeta label="Project" value={memory.project ?? "-"} />
               <ToolbarMeta className="hidden md:block" label="Topic" value={memory.topicKey ?? "-"} />
@@ -1473,7 +2322,38 @@ function ReaderCanvas({
       </header>
 
       <ScrollArea className="min-h-0 flex-1">
-        {memory ? (
+        {mode === "docs" && readingDocument ? (
+          <div className="mx-auto w-full max-w-[900px] px-5 py-8 sm:px-8 sm:py-12 lg:px-12">
+            <header className="reader-article-header mb-8 border-b pb-6">
+              <p className="reader-article-id text-sm font-medium">Project docs / ADR</p>
+              <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+                {readingDocument.title}
+              </h1>
+              <div className="mt-5 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <ReaderMeta label="Project" value={project ?? "-"} />
+                <ReaderMeta label="Path" value={readingDocument.path} />
+                <ReaderMeta label="File" value={readingDocument.name} />
+                <ReaderMeta label="Size" value={formatBytes(readingDocument.sizeBytes)} />
+              </div>
+            </header>
+            <MarkdownContent content={readingDocument.content} />
+          </div>
+        ) : mode === "prompts" && readingPrompt ? (
+          <div className="mx-auto w-full max-w-[900px] px-5 py-8 sm:px-8 sm:py-12 lg:px-12">
+            <header className="reader-article-header mb-8 border-b pb-6">
+              <p className="reader-article-id text-sm font-medium">Project prompt</p>
+              <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+                Prompt #{readingPrompt.id}
+              </h1>
+              <div className="mt-5 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                <ReaderMeta label="Project" value={project ?? "-"} />
+                <ReaderMeta label="Session" value={readingPrompt.sessionId} />
+                <ReaderMeta label="Created" value={formatDate(readingPrompt.createdAt)} />
+              </div>
+            </header>
+            <MarkdownContent content={readingPrompt.content} />
+          </div>
+        ) : memory ? (
           <div className="mx-auto w-full max-w-[900px] px-5 py-8 sm:px-8 sm:py-12 lg:px-12">
             <header className="reader-article-header mb-8 border-b pb-6">
               <p className="reader-article-id text-sm font-medium">
