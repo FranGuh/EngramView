@@ -655,3 +655,143 @@ select {
 .project-no-sessions:hover,
 .project-no-sessions:focus-within { opacity: 0.82; }
 .app-theme-dark .project-card > button:last-child:hover { background: rgb(255 255 255 / 10%); }
+
+/* Dark surfaces for the reader mode switcher and project workspaces. */
+.app-theme-dark [data-reader-mode-switcher] {
+  background: #111c27 !important;
+  border-color: rgb(255 255 255 / 12%) !important;
+  color: #e5e9ef;
+}
+.app-theme-dark [data-reader-mode-switcher] [data-slot="button"] {
+  border-color: rgb(255 255 255 / 14%) !important;
+  color: #e5e9ef !important;
+}
+.app-theme-dark [data-reader-mode-switcher] [data-variant="default"] {
+  background: #223343 !important;
+  border-color: rgb(255 255 255 / 18%) !important;
+  color: #f7f9fb !important;
+}
+.app-theme-dark [data-reader-mode-switcher] [data-variant="outline"] {
+  background: #1b2835 !important;
+}
+.app-theme-dark [data-reader-mode-switcher] [data-slot="button"]:hover {
+  background: #223343 !important;
+}
+.app-theme-dark [data-reader-mode-switcher] [aria-disabled="true"] {
+  border-style: dashed !important;
+  color: #aeb8c5 !important;
+  opacity: 0.72;
+}
+
+.app-theme-dark [data-reader-workspace] {
+  color: #e5e9ef;
+}
+.app-theme-dark [data-reader-workspace] [data-slot="card"] {
+  background: #172330 !important;
+  border-color: rgb(255 255 255 / 12%) !important;
+  color: #e5e9ef;
+}
+.app-theme-dark [data-reader-workspace] [data-slot="card-title"],
+.app-theme-dark [data-slot="card-title"] {
+  color: #f7f9fb !important;
+}
+.app-theme-dark [data-reader-workspace] [data-slot="card-description"],
+.app-theme-dark [data-slot="card-description"] {
+  color: #aeb8c5 !important;
+}
+.app-theme-dark [data-reader-workspace] [data-slot="button"] {
+  border-color: rgb(255 255 255 / 14%) !important;
+  color: #e5e9ef !important;
+}
+.app-theme-dark [data-reader-workspace] [data-slot="button"][data-variant="default"],
+.app-theme-dark [data-reader-workspace] [data-variant="default"] {
+  background: #223343 !important;
+  border-color: rgb(255 255 255 / 18%) !important;
+  color: #f7f9fb !important;
+}
+.app-theme-dark [data-reader-workspace] [data-slot="button"][data-variant="outline"],
+.app-theme-dark [data-reader-workspace] [data-variant="outline"] {
+  background: #1b2835 !important;
+  border-color: rgb(255 255 255 / 14%) !important;
+  color: #e5e9ef !important;
+}
+.app-theme-dark [data-reader-workspace] [data-slot="button"]:hover {
+  background: #223343 !important;
+  color: #f7f9fb !important;
+}
+.app-theme-dark [data-reader-workspace] button[class*="bg-white"] {
+  background: #1b2835 !important;
+  border-color: rgb(255 255 255 / 14%) !important;
+  color: #eef2f7 !important;
+}
+.app-theme-dark [data-reader-workspace] button[class*="bg-white"]:hover {
+  background: #223343 !important;
+}
+.app-theme-dark [data-reader-workspace] button[class*="bg-black"] {
+  background: #101923 !important;
+  border-color: rgb(255 255 255 / 22%) !important;
+  color: #f7f9fb !important;
+}
+.app-theme-dark [data-reader-workspace] button[class*="bg-black"]:hover {
+  background: #223343 !important;
+}
+.app-theme-dark [data-reader-workspace] .empty-state {
+  background: #111c27 !important;
+  border-color: rgb(255 255 255 / 20%) !important;
+  color: #c4ceda !important;
+}
+.app-theme-dark [data-reader-workspace] .reader-error {
+  background: #3a171a !important;
+  border-color: #7f1d1d !important;
+  color: #fecaca !important;
+}
+.app-theme-dark [data-reader-workspace] .meta-item {
+  background: #1b2835 !important;
+  border-color: rgb(255 255 255 / 13%) !important;
+  color: #e5e9ef !important;
+}
+.app-theme-dark [data-reader-workspace] .meta-item > div:first-child {
+  color: #aeb8c5 !important;
+}
+.app-theme-dark [data-reader-workspace] .memory-content-panel {
+  background: #101923 !important;
+  border-color: rgb(255 255 255 / 13%) !important;
+}
+.app-theme-dark [data-reader-workspace] .markdown-content {
+  color: #cdd5df;
+}
+.app-theme-dark [data-reader-workspace] .markdown-content h1,
+.app-theme-dark [data-reader-workspace] .markdown-content h2,
+.app-theme-dark [data-reader-workspace] .markdown-content h3,
+.app-theme-dark [data-reader-workspace] .markdown-content h4,
+.app-theme-dark [data-reader-workspace] .markdown-content h5,
+.app-theme-dark [data-reader-workspace] .markdown-content h6,
+.app-theme-dark [data-reader-workspace] .markdown-content strong {
+  color: #f7f9fb;
+}
+.app-theme-dark [data-reader-workspace] .markdown-content a {
+  color: #ff9f91;
+}
+.app-theme-dark [data-reader-workspace] .markdown-content code {
+  background: #202c39;
+  color: #ffb4a9;
+}
+.app-theme-dark [data-reader-workspace] .markdown-content pre {
+  background: #070b10;
+  color: #e7edf5;
+}
+.app-theme-dark [data-reader-workspace] .markdown-content pre code {
+  background: transparent;
+  color: inherit;
+}
+.app-theme-dark [data-reader-workspace] .markdown-content blockquote {
+  color: #aeb8c5;
+}
+.app-theme-dark [data-reader-workspace] .markdown-content th,
+.app-theme-dark [data-reader-workspace] .markdown-content td {
+  border-color: rgb(255 255 255 / 13%);
+}
+.app-theme-dark [data-reader-workspace] .markdown-content th {
+  background: #182330;
+  color: #f7f9fb;
+}

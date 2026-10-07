@@ -1357,7 +1357,7 @@ function App() {
             </header>
           ) : null}
 
-          <div className="mb-4 flex shrink-0 items-center justify-between gap-3 rounded-xl border border-black/10 bg-white/65 px-3 py-2 shadow-sm">
+          <div data-reader-mode-switcher className="mb-4 flex shrink-0 items-center justify-between gap-3 rounded-xl border border-black/10 bg-white/65 px-3 py-2 shadow-sm">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <BookOpen className="size-4 text-[#e45a45]" />
               <span>{readerMode === "docs" ? "Project docs" : readerMode === "prompts" ? "Prompts" : "Memories"}</span>
@@ -1429,6 +1429,7 @@ function App() {
             />
           ) : (
           <div
+            data-reader-workspace="memories"
             className={`grid min-h-0 flex-1 gap-5 ${
               isMemoryListCollapsed
                 ? "grid-cols-[72px_minmax(0,1fr)]"
@@ -1751,6 +1752,7 @@ function ProjectPromptsWorkspace({
 
   return (
     <div
+      data-reader-workspace="prompts"
       className={`grid min-h-0 flex-1 gap-5 ${
         isListCollapsed
           ? "grid-cols-[72px_minmax(0,1fr)]"
@@ -1801,7 +1803,7 @@ function ProjectPromptsWorkspace({
                     <Loader2 className="size-4 animate-spin" /> Loading prompts...
                   </div>
                 ) : error ? (
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-950">
+                  <div className="reader-error rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-950">
                     Project prompts could not be loaded: {error}
                   </div>
                 ) : prompts.items.length === 0 ? (
@@ -1941,6 +1943,7 @@ function ProjectDocsWorkspace({
 
   return (
     <div
+      data-reader-workspace="docs"
       className={`grid min-h-0 flex-1 gap-5 ${
         isListCollapsed
           ? "grid-cols-[72px_minmax(0,1fr)]"
@@ -1991,7 +1994,7 @@ function ProjectDocsWorkspace({
                     <Loader2 className="size-4 animate-spin" /> Loading project docs...
                   </div>
                 ) : error ? (
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-950">
+                  <div className="reader-error rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-950">
                     Project docs could not be loaded: {error}
                   </div>
                 ) : missingRoot ? (

@@ -1,16 +1,17 @@
-import { Fragment, memo, useMemo, type ReactNode } from "react";
+import { Children, Fragment, memo, useMemo, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { FileCode, GitCommit, Terminal } from "lucide-react";
 
 interface MarkdownContentProps {
   content: string;
 }
 
-const INLINE_PATTERN = new RegExp(
+const FILE_PATH_REGEX =
+  /(?:[a-zA-Z]:[\\/]|[.~]?[\\/])?[-a-zA-Z0-9_.~–—/\\]+\.(?:json|jsx|html|tsx|swift|toml|yaml|scss|cmd|exe|yml|txt|sh|bat|cpp|hpp|java|ruby|vue|svelte|py|js|ts|rs|md|css|c|h|go|rb|php)(?![a-zA-Z0-9_])/i;
+
+const DOMAIN_TOKEN_PATTERN = new RegExp(
   [
-    "(`[^`]+`)",
-    "(\\[[^\\]]+\\]\\(https?:\\/\\/[^)\\s]+\\))",
-    "(\\*{2}[^*]+\\*{2})",
-    "(\\*[^*\n]+\\*)",
     "(\\b(?:Ctrl|Cmd|Alt|Shift|Option)\\s*\\+\\s*[A-Za-z0-9]+\\b)",
     "(<[a-zA-Z0-9_, -]+>)",
     "((?:[a-zA-Z]:[\\\\/]|[.~]?[\\\\/])?[-a-zA-Z0-9_.~–—/\\\\]+\\.(?:json|jsx|html|tsx|swift|toml|yaml|scss|cmd|exe|yml|txt|sh|bat|cpp|hpp|java|ruby|vue|svelte|py|js|ts|rs|md|css|c|h|go|rb|php)(?![a-zA-Z0-9_]))",
@@ -21,37 +22,29 @@ const INLINE_PATTERN = new RegExp(
   "gi",
 );
 
-function renderInline(value: string, keyPrefix: string): ReactNode[] {
+function renderDomainTokens(value: string): ReactNode {
+  if (!value) return value;
+
+  DOMAIN_TOKEN_PATTERN.lastIndex = 0;
+  if (!DOMAIN_TOKEN_PATTERN.test(value)) {
+    return value;
+  }
+
+  DOMAIN_TOKEN_PATTERN.lastIndex = 0;
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let tokenIndex = 0;
 
-  for (const match of value.matchAll(INLINE_PATTERN)) {
+  for (const match of value.matchAll(DOMAIN_TOKEN_PATTERN)) {
     const index = match.index ?? 0;
-    if (index > cursor) nodes.push(value.slice(cursor, index));
+    if (index > cursor) {
+      nodes.push(value.slice(cursor, index));
+    }
 
     const token = match[0];
-    const key = `${keyPrefix}-${tokenIndex}`;
-    tokenIndex += 1;
+    const key = `token-${cursor}-${tokenIndex++}`;
 
-    if (token.startsWith("`")) {
-      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
-    } else if (token.startsWith("[")) {
-      const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
-      if (linkMatch) {
-        nodes.push(
-          <a key={key} href={linkMatch[2]} rel="noreferrer" target="_blank">
-            {linkMatch[1]}
-          </a>,
-        );
-      } else {
-        nodes.push(token);
-      }
-    } else if (token.startsWith("**")) {
-      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith("*")) {
-      nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
-    } else if (/^(?:Ctrl|Cmd|Alt|Shift|Option)\s*\+/i.test(token)) {
+    if (/^(?:Ctrl|Cmd|Alt|Shift|Option)\s*\+/i.test(token)) {
       const parts = token.split("+").map((p) => p.trim());
       nodes.push(
         <span key={key} className="inline-kbd-wrap">
@@ -70,7 +63,7 @@ function renderInline(value: string, keyPrefix: string): ReactNode[] {
           {token}
         </span>,
       );
-    } else if (/\.(?:json|jsx|html|tsx|swift|toml|yaml|scss|cmd|exe|yml|txt|sh|bat|cpp|hpp|java|ruby|vue|svelte|py|js|ts|rs|md|css|c|h|go|rb|php)$/i.test(token)) {
+    } else if (FILE_PATH_REGEX.test(token)) {
       nodes.push(
         <code key={key} className="inline-filepath" title={token}>
           <FileCode className="inline-token-icon" />
@@ -103,21 +96,20 @@ function renderInline(value: string, keyPrefix: string): ReactNode[] {
     cursor = index + token.length;
   }
 
-  if (cursor < value.length) nodes.push(value.slice(cursor));
-  return nodes;
+  if (cursor < value.length) {
+    nodes.push(value.slice(cursor));
+  }
+
+  return <Fragment>{nodes}</Fragment>;
 }
 
-function splitTableRow(line: string) {
-  return line
-    .replace(/^\s*\|/, "")
-    .replace(/\|\s*$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
-}
-
-function isTableDivider(line: string) {
-  const cells = splitTableRow(line);
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+function enrichChildren(children: ReactNode): ReactNode {
+  return Children.map(children, (child) => {
+    if (typeof child === "string") {
+      return renderDomainTokens(child);
+    }
+    return child;
+  });
 }
 
 function preprocessContent(raw: string): string {
@@ -154,160 +146,81 @@ function preprocessContent(raw: string): string {
   return text;
 }
 
-function isBlockStart(lines: string[], index: number) {
-  const line = lines[index] ?? "";
-  return (
-    /^\s*```/.test(line) ||
-    /^#{1,6}\s+/.test(line) ||
-    /^\s*>\s?/.test(line) ||
-    /^\s*([-+*])\s+/.test(line) ||
-    /^\s*\d+[.)]\s+/.test(line) ||
-    /^\s*(---+|___+|\*\*\*+)\s*$/.test(line) ||
-    /^\s*\*\*(What|Why|Where|Learned|Context|Summary|Details|Resolution|Impact|Notes?|Results?|Background|Problem|Solution|Actions?|Fixes?|Cause):\*\*/i.test(line) ||
-    (line.includes("|") && isTableDivider(lines[index + 1] ?? ""))
-  );
-}
-
-function MarkdownContentBase({ content }: MarkdownContentProps) {
-  const blocks = useMemo(() => {
-    const processed = preprocessContent(content);
-    const lines = processed.replace(/\r\n?/g, "\n").split("\n");
-    const result: ReactNode[] = [];
-    let index = 0;
-
-    while (index < lines.length) {
-      const line = lines[index];
-
-      if (!line.trim()) {
-        index += 1;
-        continue;
-      }
-
-      const fenceMatch = line.match(/^\s*```([^\s`]*)\s*$/);
-      if (fenceMatch) {
-        const code: string[] = [];
-        index += 1;
-        while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) {
-          code.push(lines[index]);
-          index += 1;
-        }
-        if (index < lines.length) index += 1;
-        result.push(
-          <pre key={`code-${index}`} data-language={fenceMatch[1] || undefined}>
-            <code>{code.join("\n")}</code>
-          </pre>,
-        );
-        continue;
-      }
-
-      const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-      if (headingMatch) {
-        const level = headingMatch[1].length;
-        const Heading = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-        result.push(
-          <Heading key={`heading-${index}`}>
-            {renderInline(headingMatch[2], `heading-${index}`)}
-          </Heading>,
-        );
-        index += 1;
-        continue;
-      }
-
-      if (/^\s*(---+|___+|\*\*\*+)\s*$/.test(line)) {
-        result.push(<hr key={`rule-${index}`} />);
-        index += 1;
-        continue;
-      }
-
-      if (/^\s*>\s?/.test(line)) {
-        const quote: string[] = [];
-        while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
-          quote.push(lines[index].replace(/^\s*>\s?/, ""));
-          index += 1;
-        }
-        result.push(
-          <blockquote key={`quote-${index}`}>
-            {quote.map((quoteLine, quoteIndex) => (
-              <Fragment key={`quote-line-${quoteIndex}`}>
-                {quoteIndex > 0 ? <br /> : null}
-                {renderInline(quoteLine, `quote-${index}-${quoteIndex}`)}
-              </Fragment>
-            ))}
-          </blockquote>,
-        );
-        continue;
-      }
-
-      const unorderedMatch = line.match(/^\s*[-+*]\s+(.+)$/);
-      const orderedMatch = line.match(/^\s*\d+[.)]\s+(.+)$/);
-      if (unorderedMatch || orderedMatch) {
-        const ordered = Boolean(orderedMatch);
-        const items: string[] = [];
-        const itemPattern = ordered ? /^\s*\d+[.)]\s+(.+)$/ : /^\s*[-+*]\s+(.+)$/;
-        while (index < lines.length) {
-          const item = lines[index].match(itemPattern);
-          if (!item) break;
-          items.push(item[1]);
-          index += 1;
-        }
-        const List = ordered ? "ol" : "ul";
-        result.push(
-          <List key={`list-${index}`}>
-            {items.map((item, itemIndex) => (
-              <li key={`item-${itemIndex}`}>{renderInline(item, `item-${index}-${itemIndex}`)}</li>
-            ))}
-          </List>,
-        );
-        continue;
-      }
-
-      if (line.includes("|") && isTableDivider(lines[index + 1] ?? "")) {
-        const headers = splitTableRow(line);
-        const rows: string[][] = [];
-        index += 2;
-        while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
-          rows.push(splitTableRow(lines[index]));
-          index += 1;
-        }
-        result.push(
-          <div className="markdown-table-wrap" key={`table-${index}`}>
-            <table>
-              <thead>
-                <tr>{headers.map((header, cellIndex) => <th key={cellIndex}>{renderInline(header, `th-${index}-${cellIndex}`)}</th>)}</tr>
-              </thead>
-              <tbody>
-                {rows.map((row, rowIndex) => (
-                  <tr key={rowIndex}>{headers.map((_, cellIndex) => <td key={cellIndex}>{renderInline(row[cellIndex] ?? "", `td-${index}-${rowIndex}-${cellIndex}`)}</td>)}</tr>
-                ))}
-              </tbody>
-            </table>
-          </div>,
-        );
-        continue;
-      }
-
-      const paragraph: string[] = [line.trim()];
-      index += 1;
-      while (index < lines.length && lines[index].trim() && !isBlockStart(lines, index)) {
-        paragraph.push(lines[index].trim());
-        index += 1;
-      }
-      result.push(
-        <p key={`paragraph-${index}`}>
-          {paragraph.map((paragraphLine, lineIndex) => (
-            <Fragment key={lineIndex}>
-              {lineIndex > 0 ? <br /> : null}
-              {renderInline(paragraphLine, `paragraph-${index}-${lineIndex}`)}
-            </Fragment>
-          ))}
-        </p>,
+const markdownComponents: Components = {
+  p: ({ children, node: _node, ...props }) => <p {...props}>{enrichChildren(children)}</p>,
+  li: ({ children, node: _node, ...props }) => <li {...props}>{enrichChildren(children)}</li>,
+  blockquote: ({ children, node: _node, ...props }) => <blockquote {...props}>{enrichChildren(children)}</blockquote>,
+  strong: ({ children, node: _node, ...props }) => <strong {...props}>{enrichChildren(children)}</strong>,
+  em: ({ children, node: _node, ...props }) => <em {...props}>{enrichChildren(children)}</em>,
+  th: ({ children, node: _node, ...props }) => <th {...props}>{enrichChildren(children)}</th>,
+  td: ({ children, node: _node, ...props }) => <td {...props}>{enrichChildren(children)}</td>,
+  h1: ({ children, node: _node, ...props }) => <h1 {...props}>{enrichChildren(children)}</h1>,
+  h2: ({ children, node: _node, ...props }) => <h2 {...props}>{enrichChildren(children)}</h2>,
+  h3: ({ children, node: _node, ...props }) => <h3 {...props}>{enrichChildren(children)}</h3>,
+  h4: ({ children, node: _node, ...props }) => <h4 {...props}>{enrichChildren(children)}</h4>,
+  h5: ({ children, node: _node, ...props }) => <h5 {...props}>{enrichChildren(children)}</h5>,
+  h6: ({ children, node: _node, ...props }) => <h6 {...props}>{enrichChildren(children)}</h6>,
+  table: ({ children, node: _node, ...props }) => (
+    <div className="markdown-table-wrap">
+      <table {...props}>{children}</table>
+    </div>
+  ),
+  a: ({ href, children, node: _node, ...props }) => (
+    <a href={href} rel="noreferrer" target="_blank" {...props}>
+      {children}
+    </a>
+  ),
+  code: ({ className, children, node: _node, ...props }) => {
+    const isBlock = Boolean(className) || (typeof children === "string" && children.includes("\n"));
+    if (isBlock) {
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
       );
     }
 
-    return result;
-  }, [content]);
+    const text = typeof children === "string" ? children : "";
+    if (text) {
+      if (FILE_PATH_REGEX.test(text)) {
+        return (
+          <code className="inline-filepath" title={text} {...props}>
+            <FileCode className="inline-token-icon" />
+            {text}
+          </code>
+        );
+      }
+      if (/^[0-9a-f]{7,8}$/i.test(text)) {
+        return (
+          <code className="inline-git-hash" title={`Git commit hash ${text}`} {...props}>
+            <GitCommit className="inline-token-icon" />
+            {text}
+          </code>
+        );
+      }
+      if (/^\b_[a-zA-Z0-9_]+\b$/i.test(text) || /^[a-zA-Z0-9_]+\(\)$/i.test(text)) {
+        return (
+          <code className="inline-identifier" {...props}>
+            {text}
+          </code>
+        );
+      }
+    }
 
-  return <article className="markdown-content">{blocks}</article>;
+    return <code {...props}>{children}</code>;
+  },
+};
+
+function MarkdownContentBase({ content }: MarkdownContentProps) {
+  const processed = useMemo(() => preprocessContent(content), [content]);
+
+  return (
+    <article className="markdown-content">
+      <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+        {processed}
+      </ReactMarkdown>
+    </article>
+  );
 }
 
 export const MarkdownContent = memo(MarkdownContentBase);
