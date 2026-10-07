@@ -1,6 +1,6 @@
 [package]
 name = "engramview"
-version = "0.1.0"
+version = "0.1.2"
 description = "Read-only desktop viewer for local Engram memories"
 authors = ["Gentleman Programming"]
 edition = "2021"
